@@ -1,4 +1,5 @@
-﻿using System.Collections.Immutable;
+﻿using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text;
 
@@ -9,6 +10,18 @@ namespace fennecs;
 /// </summary>
 public partial class World : IDisposable
 {
+    private const int MaxWorlds = 16384;
+
+    internal static readonly World[] All;
+    private static readonly ConcurrentBag<short> Available;
+    private readonly short _index;
+    
+    static World()
+    {
+        All = new World[MaxWorlds];
+        Available = new(Enumerable.Range(0, All.Length).Select(i => (short)i));
+    }
+    
     #region Config
         /// <summary>
         /// Optional name for the World.
@@ -197,11 +210,15 @@ public partial class World : IDisposable
     /// <param name="initialCapacity">initial Entity capacity to reserve. The world will grow automatically.</param>
     public World(int initialCapacity = 4096)
     {
+        if (!Available.TryTake(out _index)) throw new InvalidOperationException("No more Worlds available.");
+        All[_index] = this;
+        
         Name = nameof(World);
         
+        // World is also a Query of itself.
         World = this;
        
-        _identityPool = new(initialCapacity);
+        _identityPool = new(_index, initialCapacity);
 
         _meta = new Meta[initialCapacity];
 
@@ -256,6 +273,9 @@ public partial class World : IDisposable
     /// </summary>
     public new void Dispose()
     {
+        All[_index] = null!;
+        Available.Add(_index);
+        
         //TODO: Dispose all Object Links, Queries, etc.?
     }
 
@@ -281,7 +301,7 @@ public partial class World : IDisposable
     /// <inheritdoc cref="ToString"/>
     public string DebugString()
     {
-        var sb = new StringBuilder("World:");
+        var sb = new StringBuilder($"World #{_index}");
         sb.AppendLine();
         sb.AppendLine($" {Archetypes.Count} Archetypes");
         sb.AppendLine($" {Count} Entities");

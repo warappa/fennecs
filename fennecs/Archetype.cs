@@ -44,19 +44,11 @@ public sealed class Archetype : IEnumerable<Entity>, IComparable<Archetype>
     /// Called when a group of Entities is moved to this Archetype.
     /// Events are invoked during <see cref="World.WorldMode.CatchUp"/> phase.
     /// </summary>
-    public event ArchetypeArrive OnArrive;
-    public event ArchetypeArrive OnDepart;
-    public delegate void ArchetypeArrive(Span<Entity> entities);
-    public delegate void ArchetypeDepart(Span<Entity> entities);
-    public delegate void ComponentAdded(Span<Entity> entities, Comp component);
-    public delegate void ComponentRemoved(Span<Entity> entities, Comp component);
-
-    private bool CompTest(Span<Entity> entities, Comp component)
-    {
-        Comp<int>.Plain.Matches(component);
-        return component == Comp<int>.Plain;
-    }
-
+    internal event ArchetypeArrive? OnArrive;
+    internal event ArchetypeArrive? OnDepart;
+    internal delegate void ArchetypeArrive(Span<Identity> entities);
+    internal delegate void ArchetypeDepart(Span<Entity> entities);
+    
     
     /// <summary>
     /// The World this Archetype is a part of.
@@ -193,6 +185,8 @@ public sealed class Archetype : IEnumerable<Entity>, IComparable<Archetype>
             ref var meta = ref _world.GetEntityMeta(identity);
             meta = new() { Identity = identity, Archetype = this, Row = entry + i };
         }
+        
+        OnArrive?.Invoke(IdentityStorage.Span.Slice(entry, count));
     }
 
     /// <summary>

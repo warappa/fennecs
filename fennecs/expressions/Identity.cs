@@ -18,18 +18,27 @@ internal readonly record struct Identity : IComparable<Identity>
     [FieldOffset(4)] internal readonly ushort Generation;
     [FieldOffset(4)] internal readonly TypeID Decoration;
 
+    // ReSharper disable once UseSymbolAlias
+    [FieldOffset(6)] internal readonly short WorldId;
+    
     //Constituents for GetHashCode()
     [FieldOffset(0)] internal readonly uint DWordLow;
     [FieldOffset(4)] internal readonly uint DWordHigh;
-
-
+    
+    /// <summary>
+    /// The World this Identity (Entity) belongs to.
+    /// </summary>
+    public World World => World.All[WorldId];
+    
+    private const short Global = -1;
+    
     // Entity Reference.
     /// <summary>
     /// Truthy if the Identity represents an actual Entity.
     /// Falsy if it is a virtual concept or a tracked object.
     /// Falsy if it is the <c>default</c> Identity.
     /// </summary>
-    public bool IsEntity => Index > 0 && Decoration > 0;
+    public bool IsEntity => Index > 0 && Decoration >= 0;
 
     // Tracked Object Reference.
     /// <summary>
@@ -37,7 +46,7 @@ internal readonly record struct Identity : IComparable<Identity>
     /// Falsy if it is a virtual concept or an actual Entity.
     /// Falsy if it is the <c>default</c> Identity.
     /// </summary>
-    public bool IsObject => Decoration < 0;
+    public bool IsObject => WorldId == Global && Decoration < 0;
 
     // Wildcard Entities, such as Any, Object, Entity, or Relation.
     /// <summary>
@@ -45,7 +54,7 @@ internal readonly record struct Identity : IComparable<Identity>
     /// Falsy if it is an actual Entity or a tracked object.
     /// Falsy if it is the <c>default</c> Identity.
     /// </summary>
-    public bool IsWildcard => Decoration == 0 && Index < 0;
+    public bool IsWildcard => WorldId == Global && Decoration == 0 && Index < 0;
 
 
     #region IComparable/IEquatable Implementation
@@ -78,7 +87,7 @@ internal readonly record struct Identity : IComparable<Identity>
     internal Type Type => Decoration switch
     {
         // Decoration is Type Id
-        <= 0 => LanguageType.Resolve(Math.Abs(Decoration)),
+        < 0 => LanguageType.Resolve(Math.Abs(Decoration)),
         // Decoration is Generation
         _ => typeof(Identity),
     };
@@ -87,15 +96,15 @@ internal readonly record struct Identity : IComparable<Identity>
     #region Constructors / Creators
     /// <summary>
     /// Create an Identity for a tracked object and the backing Object Link type.
-    /// Used to set targets of Object Links. 
+    /// Used to set targets of Object Links. Objects are tracked outside of worlds.
     /// </summary>
     /// <param name="item">target item (an instance of object)</param>
     /// <typeparam name="T">type of the item (becomes the backing type of the object link)</typeparam>
     /// <returns></returns>
-    internal static Identity Of<T>(T item) where T : class => new(item != null! ? item.GetHashCode() : 0, LanguageType<T>.TargetId);
+    internal static Identity Of<T>(T item) where T : class => new(Global, item.GetHashCode(), LanguageType<T>.TargetId);
     
     
-    internal Identity(int id, TypeID decoration = 1) : this((uint) id | (ulong) decoration << 32)
+    internal Identity(short worldId, int id, TypeID decoration) : this((uint) id | (ulong) decoration << 32 | (ulong) worldId << 48)
     {
     }
 
@@ -113,7 +122,7 @@ internal readonly record struct Identity : IComparable<Identity>
             if (!IsEntity) throw new InvalidOperationException("Cannot reuse virtual Identities");
 
             var generationWrappedStartingAtOne = (TypeID) (Generation % (TypeID.MaxValue - 1) + 1);
-            return new Identity(Index, generationWrappedStartingAtOne);
+            return new(WorldId, Index, generationWrappedStartingAtOne);
         }
     }
     #endregion
@@ -125,23 +134,23 @@ internal readonly record struct Identity : IComparable<Identity>
         if (Equals(default))
             return "[None]";
 
-        if (Equals(new(-1, 0)))
+        if (Equals(new(Global, -1, 0)))
             return "wildcard[Any]";
 
-        if (Equals(new(-2, 0)))
+        if (Equals(new(Global, -2, 0)))
             return "wildcard[Target]";
 
-        if (Equals(new(-3, 0)))
+        if (Equals(new(Global, -3, 0)))
             return "wildcard[Entity]";
 
-        if (Equals(new(-4, 0)))
+        if (Equals(new(Global, -4, 0)))
             return "wildcard[Object]";
 
         if (IsObject)
             return $"O-<{Type}>#{Index:X8}";
 
         if (IsEntity)
-            return $"E-{Index:x8}:{Generation:D5}";
+            return $"E-{WorldId}-{Index:x8}:{Generation:D5}";
 
         return $"?-{Value:x16}";
     }
@@ -171,7 +180,7 @@ internal readonly record struct Identity : IComparable<Identity>
     /// <li>Use wildcards deliberately and sparingly.</li>
     /// </ul>
     /// </remarks>
-    public static Identity Any => new(-1, 0); // or prefer default ?
+    public static Identity Any => new(Global, -1, 0); // or prefer default ?
 
     /// <summary>
     /// <b>Wildcard match expression for Entity iteration.</b><br/>Matches any non-plain Components of the given Stream Type, i.e. any with a <see cref="TypeExpression.Match"/>.
@@ -180,7 +189,7 @@ internal readonly record struct Identity : IComparable<Identity>
     /// <para>Applying this to a Query's Stream Type can result in multiple iterations over entities if they match multiple component types. This is due to the wildcard's nature of matching all components.</para>
     /// </summary>
     /// <inheritdoc cref="Any"/>
-    public static Identity Target => new(-2, 0);
+    public static Identity Target => new(Global, -2, 0);
 
     /// <summary>
     /// <para>Wildcard match expression for Entity iteration. <br/>This matches all <b>Entity-Object</b> Links of the given Stream Type.
@@ -191,7 +200,7 @@ internal readonly record struct Identity : IComparable<Identity>
     /// <para>Applying this to a Query's Stream Type can result in multiple iterations over entities if they match multiple component types. This is due to the wildcard's nature of matching all components.</para>
     /// </summary>
     /// <inheritdoc cref="Any"/>
-    public static Identity Object => new(-4, 0);
+    public static Identity Object => new(Global, -4, 0);
 
     /// <summary>
     /// <para><b>Wildcard match expression for Entity iteration.</b><br/>This matches only <b>Entity-Entity</b> Relations of the given Stream Type.
@@ -201,7 +210,7 @@ internal readonly record struct Identity : IComparable<Identity>
     /// <para>Applying this to a Query's Stream Type can result in multiple iterations over entities if they match multiple component types. This is due to the wildcard's nature of matching all components.</para>
     /// </summary>
     /// <inheritdoc cref="Any"/>
-    public static Identity Entity => new(-3, 0);
+    public static Identity Entity => new(Global, -3, 0);
 
     /// <summary>
     /// <para>

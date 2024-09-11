@@ -7,14 +7,17 @@ internal class IdentityPool
 
     private readonly Queue<Identity> _recycled;
     private int _created;
+    
+    private readonly short _worldIndex;
 
-    public IdentityPool(int initialCapacity = 65536)
+    public IdentityPool(short worldIndex, int initialCapacity = 65536)
     {
+        _worldIndex = worldIndex;
+        
         _recycled = new(initialCapacity * 2);
         for (var i = 0; i < initialCapacity; i++)
         {
-            _created = Created;
-            _recycled.Enqueue(new(++_created));
+            _recycled.Enqueue(new(_worldIndex, ++_created, 1));
         }
     }
 
@@ -24,7 +27,7 @@ internal class IdentityPool
         if (_recycled.TryDequeue(out var recycledIdentity)) return recycledIdentity;
 
         var newIndex = Interlocked.Increment(ref _created);
-        return new(newIndex);
+        return new(_worldIndex, newIndex, 1);
     }
 
 
@@ -42,7 +45,7 @@ internal class IdentityPool
             // If we don't have enough recycled Identities, create more.
             for (var i = 0; i < requested - recycled; i++)
             {
-                identities.Add(new(++_created));
+                identities.Add(new(_worldIndex, ++_created, 1));
             }
         }
         else

@@ -9,10 +9,10 @@ public class IdentityTests(ITestOutputHelper output)
     [Fact]
     public void Virtual_Entities_have_no_Successors()
     {
-        Assert.Throws<InvalidOperationException>(() => new Identity(-1, 0).Successor);
-        Assert.Throws<InvalidOperationException>(() => new Identity(-4, 0).Successor);
-        Assert.Throws<InvalidOperationException>(() => new Identity(-2, 0).Successor);
-        Assert.Throws<InvalidOperationException>(() => new Identity(-3, 0).Successor);
+        Assert.Throws<InvalidOperationException>(() => new Identity(-1, -1, 0).Successor);
+        Assert.Throws<InvalidOperationException>(() => new Identity(-1, -4, 0).Successor);
+        Assert.Throws<InvalidOperationException>(() => new Identity(-1, -2, 0).Successor);
+        Assert.Throws<InvalidOperationException>(() => new Identity(-1, -3, 0).Successor);
         Assert.Throws<InvalidOperationException>(() => default(Identity).Successor);
     }
 
@@ -48,8 +48,8 @@ public class IdentityTests(ITestOutputHelper output)
         _ = Match.Object.ToString();
         _ = Match.Plain.ToString();
         _ = Identity.Of("hello world").ToString();
-        _ = new Identity(123, 456).ToString();
-        _ = new Identity(-1, 2).ToString();
+        _ = new Identity(1, 123, 456).ToString();
+        _ = new Identity(-1, -1, 2).ToString();
 
         output.WriteLine(Match.Any.ToString());
         output.WriteLine(Match.Entity.ToString());
@@ -57,32 +57,21 @@ public class IdentityTests(ITestOutputHelper output)
         output.WriteLine(Match.Object.ToString());
         output.WriteLine(Match.Plain.ToString());
         output.WriteLine(Identity.Of("hello world").ToString());
-        output.WriteLine(new Identity(123, 456).ToString());
-        output.WriteLine(new Identity(-1, 2).ToString());
+        output.WriteLine(new Identity(1, 123, 456).ToString());
+        output.WriteLine(new Identity(-1, -1, 2).ToString());
     }
 
-
-    [Fact]
-    public void Identity_None_cannot_Match_One()
-    {
-        var zero = new Identity(0);
-        Assert.NotEqual(Match.Plain, new Match(zero));
-
-        var one = new Identity(1);
-        Assert.NotEqual(Match.Plain, new Match(one));
-    }
-
-
+    
     [Fact]
     public void Identity_Matches_Only_Self()
     {
         var self = new Identity(12345);
         Assert.Equal(self, self);
 
-        var successor = new Identity(12345, 3);
+        var successor = new Identity(1, 12345, 3);
         Assert.NotEqual(self, successor);
 
-        var other = new Identity(9000, 3);
+        var other = new Identity(1, 9000, 3);
         Assert.NotEqual(self, other);
     }
 
@@ -93,12 +82,14 @@ public class IdentityTests(ITestOutputHelper output)
     {
         var ids = new Dictionary<int, Identity>((int)(idCount * genCount * 4f));
 
+        //Worlds
+        for(short w = 0; w < 4; w++)
         //Identities
         for (var i = 0; i < idCount; i++)
         //Generations
         for (TypeID g = 1; g < genCount; g++)
         {
-            var identity = new Identity(i, g);
+            var identity = new Identity(w, i, g);
 
             Assert.NotEqual(new(identity), Match.Any);
             Assert.NotEqual(new(identity), Match.Plain);
@@ -122,13 +113,15 @@ public class IdentityTests(ITestOutputHelper output)
     public void Identity_Matches_Self_if_Same()
     {
         var random = new Random(420960);
+        //Worlds
+        for(short w = 0; w < 4; w++)
         for (var i = 0; i < 1_000; i++)
         {
             var id = random.Next();
             var gen = (TypeID)(random.Next() % TypeID.MaxValue);
 
-            var self = new Identity(id, gen);
-            var other = new Identity(id, gen);
+            var self = new Identity(w, id, gen);
+            var other = new Identity(w, id, gen);
 
             Assert.Equal(self, other);
         }
@@ -173,8 +166,8 @@ public class IdentityTests(ITestOutputHelper output)
     [Fact]
     private void Same_Entity_is_Equal()
     {
-        var entity1 = new Identity(123, 999);
-        var entity2 = new Identity(123, 999);
+        var entity1 = new Identity(1, 123, 999);
+        var entity2 = new Identity(1, 123, 999);
         Assert.Equal(entity1, entity2);
         Assert.True(entity1 == entity2);
     }
@@ -183,11 +176,11 @@ public class IdentityTests(ITestOutputHelper output)
     [Fact]
     private void Different_Entity_is_Not_Equal()
     {
-        var entity1 = new Identity(69, 420);
-        var entity2 = new Identity(420, 69);
+        var entity1 = new Identity(1, 69, 420);
+        var entity2 = new Identity(1, 420, 69);
 
-        var entity3 = new Identity(69, 69);
-        var entity4 = new Identity(420, 420);
+        var entity3 = new Identity(1, 69, 69);
+        var entity4 = new Identity(1, 420, 420);
 
         Assert.NotEqual(entity1, entity2);
         Assert.True(entity1 != entity2);

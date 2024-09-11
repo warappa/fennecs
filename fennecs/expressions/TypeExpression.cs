@@ -26,7 +26,6 @@ internal readonly record struct TypeExpression : IComparable<TypeExpression>
 {
     //private TypeExpression(Match match, TypeID typeId) : this(match.Value, typeId, default)
     //{ }
-    
     public TypeExpression(Identity Identity, TypeID TypeId, TypeFlags Flags)
     {
         this.Identity = Identity;
