@@ -31,7 +31,7 @@ public readonly record struct Identity : IComparable<Identity>
     /// </summary>
     public World World => World.All[WorldId];
     
-    private const short Global = -1;
+    private const byte Global = 255;
     
     // Entity Reference.
     /// <summary>
@@ -105,7 +105,7 @@ public readonly record struct Identity : IComparable<Identity>
     internal static Identity Of<T>(T item) where T : class => new(Global, item.GetHashCode(), LanguageType<T>.TargetId);
     
     
-    internal Identity(short worldId, int id, TypeID decoration) : this((uint) id | (ulong) decoration << 32 | (ulong) worldId << 48)
+    internal Identity(byte worldId, int id, TypeID decoration) : this((uint) id | (ulong) decoration << 32 | (ulong) worldId << 48)
     {
     }
 

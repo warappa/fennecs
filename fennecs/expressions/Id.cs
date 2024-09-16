@@ -17,12 +17,16 @@ internal static class LTypeHelper
 }
 
 /// <summary>
-/// 
+/// A TypeExpression used to identify a specific type of component in an Archetype, or Storage, or a Wildcard for querying.
 /// </summary>
 /// <param name="raw"></param>
-public readonly record struct TypeIdentity(ulong raw)
+internal readonly record struct TypeIdentity(ulong raw)
 {
-    public static implicit operator TypeIdentity(ulong raw) => new(raw);
+    public static implicit operator TypeIdentity(ulong raw)
+    {
+        Debug.Assert((raw & HeaderMask) != 0, "TypeIdentity must have a header.");
+        return new(raw);   
+    }
     
     public Type type => LanguageType.Resolve((TypeID)((raw & TypeMask) >> 48));
 
@@ -34,7 +38,6 @@ public readonly record struct TypeIdentity(ulong raw)
     /// <remarks>
     /// Only valid for Relation Components.
     /// </remarks> 
-
     public Entity3 relation
     {
         get
@@ -94,7 +97,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Plain Data
     /// </summary>
     public static TypeIdentity Plain<D>() where D : notnull => 
-        (ulong)TypeKind.Data 
+        (ulong)StorageKind.Data 
         | LTypeHelper.Id<D>()
         | (ulong)TargetFlag.None;
 
@@ -102,7 +105,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Plain Data
     /// </summary>
     public static TypeIdentity Data<D>() where D : notnull => 
-        (ulong)TypeKind.Data 
+        (ulong)StorageKind.Data 
         | LTypeHelper.Id<D>()
         | (ulong)TargetFlag.None 
         | (ulong)TargetFlag.None;
@@ -111,7 +114,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Keyed Data
     /// </summary>
     public static TypeIdentity Data<D, K>(K target) where K : notnull => 
-        (ulong)TypeKind.Data
+        (ulong)StorageKind.Data
         | LTypeHelper.Id<D>() 
         | (ulong)TargetFlag.Key 
         | LTypeHelper.Sub<K>() 
@@ -121,7 +124,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Object Link (Data Component Keyed with itself)
     /// </summary>
     public static TypeIdentity Link<L>(L target) where L : class => 
-        (ulong)TypeKind.Data 
+        (ulong)StorageKind.Data 
         | LTypeHelper.Id<L>() 
         | (ulong)TargetFlag.Object 
         | LTypeHelper.Sub<L>() 
@@ -131,7 +134,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Relation Data
     /// </summary>
     public static TypeIdentity Relation<D>(Entity3 entity) =>
-        (ulong)TypeKind.Data
+        (ulong)StorageKind.Data
         | LTypeHelper.Id<D>()
         | (ulong)TargetFlag.Entity
         | entity.living;
@@ -140,7 +143,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Plain Singleton
     /// </summary>
     public static TypeIdentity Unique<T>() where T : notnull =>
-        (ulong)TypeKind.Unique
+        (ulong)StorageKind.Unique
         | LTypeHelper.Id<T>()
         | (ulong)TargetFlag.None; 
 
@@ -148,7 +151,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Singleton Relation
     /// </summary>
     public static TypeIdentity Unique<S>(S singleton, Entity3 entity) where S : notnull => 
-        (ulong)TypeKind.Unique 
+        (ulong)StorageKind.Unique 
         | (ulong)TargetFlag.None 
         | entity.living;
 
@@ -156,7 +159,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Keyed Singleton
     /// </summary>
     public static TypeIdentity Unique<S, K>(S singleton, K target) where S : notnull where K : notnull => 
-        (ulong)TypeKind.Unique 
+        (ulong)StorageKind.Unique 
         | (ulong)TargetFlag.Key 
         | LTypeHelper.Id<S>() 
         | (uint) target.GetHashCode();
@@ -165,7 +168,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Object Link (Data Component Keyed with itself)
     /// </summary>
     public static TypeIdentity Link2<L>(L target) where L : class => 
-        (ulong)TypeKind.Data 
+        (ulong)StorageKind.Data 
         | (ulong)TargetFlag.Object 
         | LTypeHelper.Id<L>() 
         | LTypeHelper.Sub<L>() 
@@ -176,14 +179,14 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Plain Tag
     /// </summary>
     public static TypeIdentity Tag<T>() where T : struct => 
-        (ulong)TypeKind.Void 
+        (ulong)StorageKind.Void 
         | LTypeHelper.Id<T>();
 
     /// <summary>
     /// Relation Tag
     /// </summary>
     public static TypeIdentity Tag<T>(Entity3 entity) where T : struct =>
-        (ulong)TypeKind.Void 
+        (ulong)StorageKind.Void 
         | LTypeHelper.Id<T>() 
         | entity.living;
 
@@ -191,7 +194,7 @@ public readonly record struct TypeIdentity(ulong raw)
     /// Keyed Tag
     /// </summary>
     public static TypeIdentity Tag<S>(S target) where S : notnull =>
-        (ulong)TypeKind.Void
+        (ulong)StorageKind.Void
         | (uint)target.GetHashCode();
 
 
@@ -225,25 +228,23 @@ public enum TargetFlag : ulong
     Any    = 0x0000_F000_0000_0000ul,
 }
 
-public enum TypeKind : ulong
+public enum StorageKind : ulong
 {
-    Void      = 0x0000_0000_0000_0000ul, // Future: Comp<T>.Tag, Comp<T>.Tag<K> - Tags and other 0-size components, saving storage and migration costs.
+    Void      = 0x1000_0000_0000_0000ul, // Future: Comp<T>.Tag, Comp<T>.Tag<K> - Tags and other 0-size components, saving storage and migration costs.
+    Data      = 0x2000_0000_0000_0000ul, // Data Components (Comp<T>.Plain and Comp<T>.Keyed<K> and Comp<T>.Link(T))
+    Unique    = 0x3000_0000_0000_0000ul, // Singleton Components (Comp<T>.Unique / future Comp<T>.Link(T))
 
-    Data      = 0x1000_0000_0000_0000ul, // Data Components (Comp<T>.Plain and Comp<T>.Keyed<K> and Comp<T>.Link())
-
-    Unique    = 0x2000_0000_0000_0000ul, // Singleton Components (Comp<T>.Unique)
-
-    Spatial1D = 0x4000_0000_0000_0000ul, // Future: 1D Spatial Components
-    Spatial2D = 0x5000_0000_0000_0000ul, // Future: 2D Spatial Components
-    Spatial3D = 0x6000_0000_0000_0000ul, // Future: 3D Spatial Components
+    //Spatial1D = 0x4000_0000_0000_0000ul, // Future: 1D Spatial Components
+    //Spatial2D = 0x5000_0000_0000_0000ul, // Future: 2D Spatial Components
+    //Spatial3D = 0x6000_0000_0000_0000ul, // Future: 3D Spatial Components
     
     WildVoid      = 0x8000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
     WildData      = 0x9000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
     WildUnique    = 0xA000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
 
-    WildSpatial1D = 0xC000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
-    WildSpatial2D = 0xD000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
-    WildSpatial3D = 0xE000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
+    //WildSpatial1D = 0xC000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
+    //WildSpatial2D = 0xD000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
+    //WildSpatial3D = 0xE000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
 
     WildAny       = 0xF000_0000_0000_0000ul, // Wildcard, details in bottom 32 bits.
 }
@@ -409,7 +410,7 @@ public record struct ObjectLink(ulong value)
 
     internal static ObjectLink Of<T>(T target)
     {
-        return new((ulong)TypeKind.Data | (ulong)TargetFlag.Object | LTypeHelper.Id<T>() | LTypeHelper.Sub<T>() | (uint)(target == null ? 0 : target.GetHashCode()));
+        return new((ulong)StorageKind.Data | (ulong)TargetFlag.Object | LTypeHelper.Id<T>() | LTypeHelper.Sub<T>() | (uint)(target == null ? 0 : target.GetHashCode()));
     }
 
     /// <inheritdoc />

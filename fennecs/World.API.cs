@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 namespace fennecs;
@@ -10,28 +11,37 @@ namespace fennecs;
 /// </summary>
 public partial class World : IDisposable
 {
-    private const int MaxWorlds = 16384;
+    /// <summary>
+    /// Index (unique numeric id) of this world.
+    /// </summary>
+    /// <remarks>
+    /// There can be up to <see cref="MaxWorlds"/> distinct World instances in a single application domain.
+    /// </remarks>
+    public readonly byte Id;
 
-    internal static readonly World[] All;
-    private static readonly ConcurrentBag<short> Available;
-    private readonly short _index;
-    
-    static World()
-    {
-        All = new World[MaxWorlds];
-        Available = new(Enumerable.Range(0, All.Length).Select(i => (short)i));
-    }
-    
+    /// <summary>
+    /// All Worlds that can exist in this application domain.
+    /// </summary>
+    /// <remarks>
+    /// Entries in this array may be null.
+    /// </remarks>
+    internal static readonly World[] All = new World[MaxWorlds];
+
+    private const int MaxWorlds = 256;
+    private static readonly ConcurrentQueue<byte> Available = new(Enumerable.Range(0, MaxWorlds).Select(i => (byte)i));
+
+
     #region Config
-        /// <summary>
-        /// Optional name for the World.
-        /// </summary>
-        public string Name { get; init; }
-        
-        /// <summary>
-        /// Flags denoting this World's Garbage Collection Strategy.
-        /// </summary>
-        public GCAction GCBehaviour { get; init; } = GCAction.DefaultBeta;
+
+    /// <summary>
+    /// Optional name for the World.
+    /// </summary>
+    public string Name { get; init; } = "";
+
+    /// <summary>
+    /// Flags denoting this World's Garbage Collection Strategy.
+    /// </summary>
+    public GCAction GCBehaviour { get; init; } = GCAction.DefaultBeta;
     #endregion
     
     /// <summary>
@@ -205,20 +215,56 @@ public partial class World : IDisposable
     #region Lifecycle & Locking
 
     /// <summary>
+    /// Retrieve a World by its Id.
+    /// </summary>
+    /// <param name="id">index of the world</param>
+    /// <param name="world">the world, if found, or null</param>
+    /// <returns>true if the world exists</returns>
+    public bool TryGet(byte id, [MaybeNullWhen(false)] out World world)
+    {
+        world = All[id];
+        return world != null!;
+    }
+    
+    
+    /// <summary>
     /// Create a new World.
     /// </summary>
     /// <param name="initialCapacity">initial Entity capacity to reserve. The world will grow automatically.</param>
     public World(int initialCapacity = 4096)
     {
-        if (!Available.TryTake(out _index)) throw new InvalidOperationException("No more Worlds available.");
-        All[_index] = this;
+        if (!Available.TryDequeue(out Id)) throw new InvalidOperationException("No more Worlds available.");
+        All[Id] = this;
         
         Name = nameof(World);
         
         // World is also a Query of itself.
         World = this;
        
-        _identityPool = new(_index, initialCapacity);
+        _identityPool = new(Id, initialCapacity);
+
+        _meta = new Meta[initialCapacity];
+
+        //Create the "Entity" Archetype, which is also the root of the Archetype Graph.
+        _root = GetArchetype(new(Comp<Identity>.Plain.Expression));
+    }
+
+    
+    /// <summary>
+    /// Create a new World.
+    /// </summary>
+    /// <param name="initialCapacity">initial Entity capacity to reserve. The world will grow automatically.</param>
+    public World(byte id, int initialCapacity = 4096)
+    {
+        if (Available.Contains(id)) throw new InvalidOperationException($"World Id already in use by {All[Id]}");
+        
+        if (!Available.TryDequeue(out Id)) throw new InvalidOperationException("No more Worlds available.");
+        All[Id] = this;
+        
+        // World is also a Query of itself.
+        World = this;
+       
+        _identityPool = new(Id, initialCapacity);
 
         _meta = new Meta[initialCapacity];
 
@@ -273,10 +319,10 @@ public partial class World : IDisposable
     /// </summary>
     public new void Dispose()
     {
-        All[_index] = null!;
-        Available.Add(_index);
+        //TODO: Dispose all Entities, Object Links, Queries, etc!
         
-        //TODO: Dispose all Object Links, Queries, etc.?
+        All[Id] = null!;
+        Available.Enqueue(Id);
     }
 
 
@@ -295,13 +341,13 @@ public partial class World : IDisposable
     /// <inheritdoc />
     public override string ToString()
     {
-        return DebugString();
+        return string.IsNullOrEmpty(Name) ? $"World {Id}" : $"World {Id} ({Name})";
     }
 
     /// <inheritdoc cref="ToString"/>
     public string DebugString()
     {
-        var sb = new StringBuilder($"World #{_index}");
+        var sb = new StringBuilder(ToString());
         sb.AppendLine();
         sb.AppendLine($" {Archetypes.Count} Archetypes");
         sb.AppendLine($" {Count} Entities");

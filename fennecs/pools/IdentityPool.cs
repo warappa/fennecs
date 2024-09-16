@@ -8,9 +8,9 @@ internal class IdentityPool
     private readonly Queue<Identity> _recycled;
     private int _created;
     
-    private readonly short _worldIndex;
+    private readonly byte _worldIndex;
 
-    public IdentityPool(short worldIndex, int initialCapacity = 65536)
+    public IdentityPool(byte worldIndex, int initialCapacity = 65536)
     {
         _worldIndex = worldIndex;
         

@@ -566,7 +566,7 @@ public class QueryTests
     public void Can_Truncate(int entityCount, int targetSize)
     {
         using var world = new World();
-        var query = world.Query<int>(Match.Any).Stream();
+        var query = world.Query<int>(Match.Any).Compile();
 
         for (var i = 0; i < entityCount; i++) world.Spawn().Add(i);
 

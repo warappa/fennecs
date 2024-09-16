@@ -10,11 +10,11 @@ namespace fennecs;
 public partial class World : Query
 {
     #region World State & Storage
-
+    
     private readonly IdentityPool _identityPool;
 
     private Meta[] _meta;
-
+    
     private readonly Guid _guid = Guid.NewGuid();
 
     // "Identity" Archetype; all living Entities. (TODO: maybe change into publicly accessible "all" Query)
@@ -258,7 +258,7 @@ public partial class World : Query
     private void AssertAlive(Entity3 entity)
     {
         if (_meta[entity.index].Identity.Value == entity.value) return;
-        throw new ObjectDisposedException($"Identity {entity} is not alive in world {_index} ({Name}).");
+        throw new ObjectDisposedException($"Identity {entity} is not alive in {this}.");
     }
 
     #endregion

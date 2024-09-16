@@ -51,7 +51,7 @@ Here, there be ~~dragons~~ more foxes. *What did you expect?*
 
 - `Has(params Comp[])` will be added to `QueryBuilders` to check for multiple components at once. (as well as `Any(params Comp[])`and `Not(params Comp[])`). These will be much more performant and low-allocation starting with .NET 9.0, and will use `Span<Comp>` in the future.
 - Breaking for `HasVirtual`, `GetVirtual`, adding `Match` expression support. (breaking means that the old methods will currently match Any, but the new versions will match Plain by default)
-- `Stream.Raw(EntitySpanAction action)` will be added to allow for processing all Entities in a Stream at maximum performance.
+- `Stream.Raw(EntitySpanAction action)` will be added to allow for processing all Entities in a Stream at maximum performance. 
 ...
 
 ## Version 0.6.0-beta
@@ -64,11 +64,17 @@ Here, there be ~~dragons~~ more foxes. *What did you expect?*
 - `Comp<...>.Plain` is deprecated. Switch to using `Comp<T>.Data` and `Comp<T>.Data<K>` instead.
 
 ### New Features
-- ✨Void Components!✨
-`Comp<T>.Tag` creates a Component of type T with no backing storage (zero size). This is better than using `Comp<T>.Plain` with 'zero' size, as the .NET Marshal would treat the latter as 1 byte, and moving it in memory isn't free. Type `T` won't store any data, so we recommend using empty structs for Tags.
+- ✨Void Components!✨ <br>*(true zero-storage components)*
+  - `Comp<T>.Tag` <br>
+  Creates a Component of type T with no backing storage (zero size). This is better than using `Comp<T>.Plain` with 'zero' size, as the .NET Marshal would treat the latter as 1 byte, and moving it in memory isn't free. Type `T` won't store any data, so we recommend using empty structs for Tags.
+  - `Comp<T>.Tag<K>` is its analog for Keyed Tags (see below)
 
-- ✨Keyed Components!✨ 
-`Comp<T>.Tag<K>(K key)` and `Comp<T>.Data<K>(K key)` create unique component Types for attaching to Entities or querying your World. They work similarly to Relations but use a Key based on the `GetHashCode` of the key parameter. Keys are strongly typed, so even if hashes match, there's no collision unless the Key Types are the same.
+- ✨Keyed Components!✨ <br>*(unified secondary key semantics)*
+  - `Comp<T>.Tag<K>(K key)`
+  - `Comp<T>.Data<K>(K key)`   
+  - `Entity.Add<T, K>(T data, K key)`
+  - `Entity.Tag<T, K>(K key)` <br>
+  These create unique component Types for attaching to Entities or query in your World. They work similarly to Relations but use a Key based on the `GetHashCode` of the key parameter. Keys are strongly typed, so even if hashes match, there's no collision unless the Key Types are the same.
 
 ::: info :neofox_blank: How is this different from Relations?
 Unlike Entity-Entity Relations that clean up when their target Entity is removed, Keys (based on a momentary hash code) don't expire if their "source" is destroyed. You can still remove or access all Keyed components by querying with appropriate Wildcards. This allows for soft relations by using an Entity as a Key.
