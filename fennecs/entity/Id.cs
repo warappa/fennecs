@@ -25,12 +25,6 @@ internal readonly record struct TypeIdentity(ulong raw)
 {
     public static implicit operator TypeIdentity(ulong raw)
     {
-
-        World w = new World();
-        var q = w.Query().Compile();
-
-        q.Stream<Action, int>();
-        
         Debug.Assert((raw & HeaderMask) != 0, "TypeIdentity must have a header.");
         return new(raw);   
     }
@@ -47,7 +41,7 @@ internal readonly record struct TypeIdentity(ulong raw)
     /// <remarks>
     /// Only valid for Relation Components. Used for Relation Cleanup.
     /// </remarks> 
-    public LiveEntity relation
+    public Entity relation
     {
         get
         {
@@ -68,7 +62,7 @@ internal readonly record struct TypeIdentity(ulong raw)
         get
         {
             Debug.Assert(Key is Key.Hash or Key.Object or Key.Entity or Key.Target, $"This TypeIdentity has no SubType, it's pointing to {Key}");
-            return Key == Key.Entity ? typeof(Entity2) : LTypeHelper.SubResolve(raw);
+            return Key == Key.Entity ? typeof(Entity) : LTypeHelper.SubResolve(raw);
         }
     }
     
@@ -150,58 +144,6 @@ internal enum EntityFlags : ulong
     Mask     = TypeIdentity.EntityFlagMask,
 }
 
-[StructLayout(LayoutKind.Explicit)]
-public record struct LiveEntity(ulong raw) : IAddRemoveComponent<Entity>
-{
-    [FieldOffset(0)]
-    public ulong raw = raw & TypeIdentity.TargetMask | (ulong)Key.Entity;
-
-    [FieldOffset(0)]
-    internal int index;
-
-    [FieldOffset(4)]
-    internal byte world;
-
-    internal EntityFlags flags => (EntityFlags) (raw & (ulong) EntityFlags.Mask);
-    
-    internal World World => World.All[world];
-
-    /// <inheritdoc />
-    public override string ToString()
-    {
-        return $"Entity{world}-{index:x8}/*";
-    }
-
-    /// <inheritdoc />
-    public override int GetHashCode() => HashCode.Combine(index, world);
-
-    #region CRUD
-
-    public Entity Add<C>() where C : notnull, new() => new Entity(World, new(raw)).Add<C>();
-
-    public Entity Add<C>(C value) where C : notnull => new Entity(World, new(raw)).Add(value);
-
-    public Entity Add<T>(Entity target) where T : notnull, new() => new Entity(World, new(raw)).Add(target);
-    
-    public Entity Add<R>(R value, Entity relation) where R : notnull => new Entity(World, new(raw)).Add(value, relation);
-
-    public Entity Add<L>(Link<L> link) where L : class => new Entity(World, new(raw)).Add(link);
-    
-    public Entity Remove<C>() where C : notnull => new Entity(World, new(raw)).Remove<C>();
-
-    public Entity Remove<R>(Entity relation) where R : notnull  => new Entity(World, new(raw)).Remove<R>(relation);
-
-    public Entity Remove<L>(L linkedObject) where L : class => new Entity(World, new(raw)).Remove<L>(linkedObject);
-
-    public Entity Remove<L>(Link<L> link) where L : class => new Entity(World, new(raw)).Remove<L>(link);
-
-    
-    public void Despawn() => new Entity(World, new(raw)).Despawn();
-
-    #endregion
-    
-}
-
 
 [StructLayout(LayoutKind.Explicit)]
 public record struct ObjectLink
@@ -231,15 +173,12 @@ public record struct ObjectLink
     internal static Id Of<T>(T obj) where T : class => new((ulong) Key.Object | LTypeHelper.Sub<T>() | (uint) obj.GetHashCode());
 }
 
-
 [StructLayout(LayoutKind.Explicit)]
-public record struct Entity2 : IComparable<Entity2>
+public record struct Entity : IComparable<Entity>
 {
     internal Id id => new(raw);
 
-    public Type type => typeof(Entity2);
-    
-    internal static Entity2 Entity => new((ulong) Key.Entity);
+    public Type type => typeof(Entity);
     
     [FieldOffset(0)]
     public ulong raw;
@@ -257,7 +196,7 @@ public record struct Entity2 : IComparable<Entity2>
     
     internal Key Key => (Key) (raw & (ulong) Key.Mask);
 
-    internal Entity2 Successor
+    internal Entity Successor
     {
         get
         {
@@ -266,6 +205,7 @@ public record struct Entity2 : IComparable<Entity2>
         }
     }
     
+    internal World World => fennecs.World.All[_world];
     internal ref Meta Meta => ref fennecs.World.All[_world].GetEntityMeta(this);
 
     internal ulong living
@@ -277,9 +217,9 @@ public record struct Entity2 : IComparable<Entity2>
         }
     }
 
-    public Entity2(byte world, int index) : this((ulong)Key.Entity | (ulong)world << 32 | (uint)index) { }
+    public Entity(byte world, int index) : this((ulong)Key.Entity | (ulong)world << 32 | (uint)index) { }
 
-    public Entity2(ulong raw)
+    public Entity(ulong raw)
     {
         this.raw = raw;
         Debug.Assert((raw & TypeIdentity.KeyMask) == (ulong) Key.Entity, "Identity is not of Category.Entity.");
@@ -287,7 +227,11 @@ public record struct Entity2 : IComparable<Entity2>
         Debug.Assert(Alive, "Entity is not alive.");
     }
 
-    public bool Alive => World.TryGet(_world, out var world) && world.IsAlive(this);
+    /// <summary>
+    /// True if the Entity is alive in its world (and has a world).
+    /// </summary>
+    public static implicit operator bool(Entity self) => self.Alive;
+    
 
     /// <inheritdoc />
     public override string ToString()
@@ -296,10 +240,234 @@ public record struct Entity2 : IComparable<Entity2>
     }
     
     /// <inheritdoc />
-    public int CompareTo(Entity2 other) => raw.CompareTo(other.raw);
+    public int CompareTo(Entity other) => raw.CompareTo(other.raw);
+    
+    
+    #region CRUD
+
+    /// <summary>
+    /// Gets a reference to the Component of type <typeparamref name="C"/> for the EntityOld.
+    /// </summary>
+    /// <remarks>
+    /// Adds the component before if possible.
+    /// </remarks>
+    /// <param name="match">specific (targeted) Match Expression for the component type. No wildcards!</param>
+    /// <typeparam name="C">any Component type</typeparam>
+    /// <returns>ref C, reference to the Component</returns>
+    /// <remarks>The reference may be left dangling if changes to the world are made after acquiring it. Use with caution.</remarks>
+    /// <exception cref="ObjectDisposedException">If the EntityOld is not Alive..</exception>
+    /// <exception cref="KeyNotFoundException">If no C or C(Target) exists in any of the World's tables for EntityOld.</exception>
+    public ref C Ref<C>(Match match) where C : struct => ref World.GetComponent<C>(this, match);
+
+
+    /// <inheritdoc cref="Ref{C}(fennecs.Match)"/>
+    public ref C Ref<C>() => ref World.GetComponent<C>(this, Match.Plain);
+
+    
+    
+    /// <summary>
+    /// Gets a reference to the Object Link Target of type <typeparamref name="L"/> for the EntityOld.
+    /// </summary>
+    /// <param name="link">object link match expressioon</param>
+    /// <typeparam name="L">any Component type</typeparam>
+    /// <returns>ref C, reference to the Component</returns>
+    /// <remarks>The reference may be left dangling if changes to the world are made after acquiring it. Use with caution.</remarks>
+    /// <exception cref="ObjectDisposedException">If the EntityOld is not Alive..</exception>
+    /// <exception cref="KeyNotFoundException">If no C or C(Target) exists in any of the World's tables for EntityOld.</exception>
+    public ref L Ref<L>(Link<L> link) where L : class => ref World.GetComponent<L>(this, link);
+
 
     /// <inheritdoc />
-    public override int GetHashCode() => HashCode.Combine(Index, _world);
+    public Entity Add<T>(Entity relation) where T : notnull, new() => Add(new T(), relation);
+
+    
+    /// <inheritdoc cref="Add{R}(R,fennecs.EntityOld)"/>
+    public Entity Add<R>(R value, Entity relation) where R : notnull
+    {
+        World.AddComponent(this, TypeExpression.Of<R>(relation), value);
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a object link to the current EntityOld.
+    /// Object links, in addition to making the object available as a Component,
+    /// place all Entities with a link to the same object into a single Archetype,
+    /// which can optimize processing them in queries.
+    /// </summary>
+    /// <remarks>
+    /// Beware of Archetype fragmentation! 
+    /// You can end up with a large number of Archetypes with few Entities in them,
+    /// which negatively impacts processing speed and memory usage.
+    /// Try to keep the size of your Archetypes as large as possible for maximum performance.
+    /// </remarks>
+    /// <typeparam name="T">Any reference type. The type the object to be linked with the EntityOld.</typeparam>
+    /// <param name="link">The target of the link.</param>
+    /// <returns>EntityOld struct itself, allowing for method chaining.</returns>
+    public Entity Add<T>(Link<T> link) where T : class
+    {
+        World.AddComponent(this, TypeExpression.Of<T>(link), link.Target);
+        return this;
+    }
+
+    /// <inheritdoc />
+    public Entity Add<C>() where C : notnull, new() => Add(new C());
+
+    /// <summary>
+    /// Adds a Plain Component of a specific type, with specific data, to the current EntityOld. 
+    /// </summary>
+    /// <param name="data">The data associated with the relation.</param>
+    /// <typeparam name="T">Any value or reference component type.</typeparam>
+    /// <returns>EntityOld struct itself, allowing for method chaining.</returns>
+    public Entity Add<T>(T data) where T : notnull => Add(data, default);
+    
+
+    /// <summary>
+    /// Removes a Component of a specific type from the current EntityOld.
+    /// </summary>
+    /// <typeparam name="C">The type of the Component to be removed.</typeparam>
+    /// <returns>EntityOld struct itself, allowing for method chaining.</returns>
+    public Entity Remove<C>() where C : notnull
+    {
+        World.RemoveComponent(this, TypeExpression.Of<C>(Match.Plain));
+        return this;
+    }
+
+    
+    /// <summary>
+    /// Removes a relation of a specific type between the current EntityOld and the target EntityOld.
+    /// </summary>
+    /// <param name="relation">target of the relation.</param>
+    /// <typeparam name="R">backing type of the relation to be removed.</typeparam>
+    /// <returns>EntityOld struct itself, allowing for method chaining.</returns>
+    public Entity Remove<R>(Entity relation) where R : notnull
+    {
+        World.RemoveComponent(this, TypeExpression.Of<R>(relation));
+        return this;
+    }
+    
+    /// <inheritdoc />
+    public Entity Remove<L>(L linkedObject) where L : class => Remove(Link<L>.With(linkedObject));
+
+
+    /// <summary>
+    /// Removes the link of a specific type with the target object.
+    /// </summary>
+    /// <typeparam name="T">The type of the link to be removed.</typeparam>
+    /// <param name="link">The target object from which the link will be removed.</param>
+    /// <returns>EntityOld struct itself, allowing for method chaining.</returns>
+    public Entity Remove<T>(Link<T> link) where T : class
+    {
+        World.RemoveComponent(this, link.TypeExpression);
+        return this;
+    }
+
+
+    /// <summary>
+    /// Despawns the EntityOld from the World.
+    /// </summary>
+    /// <remarks>
+    /// The EntityOld builder struct still exists afterwards, but the EntityOld is no longer alive and subsequent CRUD operations will throw.
+    /// </remarks>
+    public void Despawn() => World.Despawn(this);
+
+
+    /// <summary>
+    /// Checks if the EntityOld has a Plain Component.
+    /// Same as calling <see cref="Has{T}()"/> with <see cref="Identity.Plain"/>
+    /// </summary>
+    public bool Has<T>() where T : notnull => World.HasComponent<T>(this, default);
+
+    
+    /// <inheritdoc />
+    public bool Has<R>(Entity relation) where R : notnull => World.HasComponent<R>(this, relation);
+
+    
+    /// <inheritdoc />
+    public bool Has<L>(L linkedObject) where L : class => Has(Link<L>.With(linkedObject));
+
+
+    /// <summary>
+    /// Checks if the EntityOld has a Component of a specific type.
+    /// Allows for a <see cref="Match"/> Expression to be specified (Wildcards)
+    /// </summary>
+    public bool Has<T>(Match match) => World.HasComponent<T>(this, match);
+
+    /// <summary>
+    /// Checks if the EntityOld has an Object Link of a specific type and specific target.
+    /// </summary>
+    public bool Has<T>(Link<T> link) where T : class => World.HasComponent<T>(this, link);
+
+    /// <summary>
+    /// Boxes all the Components on the EntityOld into an array.
+    /// Use sparingly, but don't be paranoid. Suggested uses: serialization and debugging.
+    /// </summary>
+    /// <remarks>
+    /// Values and References are copied, changes to the array will not affect the EntityOld.
+    /// Changes to objects in the array will affect these objects in the World.
+    /// This array is re-created every time this getter is called.
+    /// The values are re-boxed each time this getter is called.
+    /// </remarks>
+    public IReadOnlyList<Component> Components => World.GetComponents(this);
+    
+    
+    /// <summary>
+    /// Gets all Components of a specific type and match expression on the EntityOld.
+    /// Supports relation Wildcards, for example:<ul>
+    /// <li><see cref="EntityOld.Any">EntityOld.Any</see></li>
+    /// <li><see cref="Link.Any">Link.Any</see></li>
+    /// <li><see cref="Match.Target">Match.Target</see></li>
+    /// <li><see cref="Match.Any">Match.Any</see></li>
+    /// <li><see cref="Match.Plain">Match.Plain</see></li>
+    /// </ul>
+    /// </summary>
+    /// <remarks>
+    /// This is not intended as the main way to get a component from an EntityOld. Consider <see cref="Stream"/>s instead.
+    /// </remarks>
+    /// <param name="match">match expression, supports wildcards</param>
+    /// <typeparam name="T">backing type of the component</typeparam>
+    /// <returns>array with all the component values stored for this EntityOld</returns>
+    public T[] Get<T>(Match match) => World.Get<T>(this, match);  
+    
+    #endregion
+
+
+    #region Cast Operators and IEquatable<EntityOld>
+
+    /// <inheritdoc />
+    public bool Equals(Entity other) => raw == other.raw;
+    
+
+    /// <inheritdoc />
+    public override int GetHashCode() => HashCode.Combine(_world, Id);
+
+
+    /// <inheritdoc/>
+    public int CompareTo(EntityOld other) => Id.CompareTo(other.Id);
+
+
+    /// <summary>
+    /// Is this EntityOld Alive in its World?
+    /// </summary>
+    public bool Alive => World != null! && World.IsAlive(this);
+
+    /// <inheritdoc/>
+    public string DebugString()
+    {
+        var sb = new System.Text.StringBuilder(Id.ToString());
+        sb.Append(' ');
+        if (Alive)
+        {
+            sb.AppendJoin("\n  |-", World.GetSignature(this));
+        }
+        else
+        {
+            sb.Append("-DEAD-");
+        }
+
+        return sb.ToString();
+    }
+    #endregion
+    
 }
 
 
@@ -331,22 +499,22 @@ public readonly record struct Hash
 
 
 
-internal readonly record struct Relation
+internal readonly record struct Relate
 {
     public readonly ulong raw;
     
-    internal Relation(ulong value)
+    internal Relate(ulong value)
     {
         Debug.Assert((value & TypeIdentity.HeaderMask) == 0, "RelationExpression must not have a header.");
         Debug.Assert((value & TypeIdentity.KeyMask) == (ulong) Key.Entity, "RelationExpression is not of Category.Entity.");
-        Debug.Assert(new Entity2(value).Alive, "Relation target is not alive.");
+        Debug.Assert(new Entity(value).Alive, "Relation target is not alive.");
         raw = value;
     }
 
-    public Relation Of(Entity2 entity) => new(entity.living);
+    public static Relate To(Entity entity) => new(entity.living);
     internal Id id => new(raw);
     
-    internal Entity2 target => new(raw);
+    internal Entity target => new(raw);
 }
 
 
@@ -372,7 +540,7 @@ internal readonly record struct Id : IComparable<Id>
         return Key switch
         {
             Key.None => $"None",
-            Key.Entity => new LiveEntity(_value).ToString(),
+            Key.Entity => new Entity(_value).ToString(),
             Key.Object => new ObjectLink(_value).ToString(),
             Key.Hash => new Hash(_value).ToString(),
             _ => $"?-{_value:x16}", 

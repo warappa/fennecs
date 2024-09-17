@@ -1,26 +1,22 @@
-﻿using System.Diagnostics;
-
-namespace fennecs;
+﻿namespace fennecs;
 
 public partial class World
 {
     #region CRUD
-    internal void AddComponent<T>(Identity identity, TypeExpression typeExpression, T data) where T : notnull
+    internal void AddComponent<T>(Entity entity, TypeExpression typeExpression, T data) where T : notnull
     {
         if (data == null) throw new ArgumentNullException(nameof(data));
 
         if (Mode == WorldMode.Deferred)
         {
-            _deferredOperations.Enqueue(new DeferredOperation {Opcode = Opcode.Add, Identity = identity, TypeExpression = typeExpression, Data = data});
+            _deferredOperations.Enqueue(new DeferredOperation {Opcode = Opcode.Add, Identity = entity, TypeExpression = typeExpression, Data = data});
             return;
         }
 
-        AssertAlive(identity);
-
-        ref var meta = ref _meta[identity.Index];
+        ref var meta = ref _meta[entity.Index];
         var oldArchetype = meta.Archetype;
 
-        if (oldArchetype.Signature.Matches(typeExpression)) throw new ArgumentException($"Entity {identity} already has a component of type {typeExpression}");
+        if (oldArchetype.Signature.Matches(typeExpression)) throw new ArgumentException($"Entity {entity} already has a component of type {typeExpression}");
 
         var newSignature = oldArchetype.Signature.Add(typeExpression);
         var newArchetype = GetArchetype(newSignature);
@@ -31,19 +27,19 @@ public partial class World
     }
 
     
-    internal void RemoveComponent(Identity identity, TypeExpression typeExpression)
+    internal void RemoveComponent(Entity entity, TypeExpression typeExpression)
     {
         if (Mode == WorldMode.Deferred)
         {
-            _deferredOperations.Enqueue(new DeferredOperation {Opcode = Opcode.Remove, Identity = identity, TypeExpression = typeExpression});
+            _deferredOperations.Enqueue(new DeferredOperation {Opcode = Opcode.Remove, Identity = entity, TypeExpression = typeExpression});
             return;
         }
 
-        ref var meta = ref _meta[identity.Index];
+        ref var meta = ref _meta[entity.Index];
 
         var oldArchetype = meta.Archetype;
 
-        if (!oldArchetype.Signature.Matches(typeExpression)) throw new ArgumentException($"Entity {identity} does not have a component of type {typeExpression}");
+        if (!oldArchetype.Signature.Matches(typeExpression)) throw new ArgumentException($"Entity {entity} does not have a component of type {typeExpression}");
 
         var newSignature = oldArchetype.Signature.Remove(typeExpression);
         var newArchetype = GetArchetype(newSignature);
@@ -51,69 +47,66 @@ public partial class World
     }
 
 
-    internal bool HasComponent<T>(Identity identity, Match match)
+    internal bool HasComponent<T>(Entity entity, Match match)
     {
         var type = TypeExpression.Of<T>(match);
-        return HasComponent(identity, type);
+        return HasComponent(entity, type);
     }
 
     /* This is sad but can't be done syntactically at the moment (without bloating the interface)
-    internal ref T GetOrCreateComponent<T>(Identity identity, Match match) where T : notnull, new()
+    internal ref T GetOrCreateComponent<T>(entity entity, Match match) where T : notnull, new()
     {
-        AssertAlive(identity);
+        AssertAlive(entity);
 
-        if (!HasComponent<T>(identity, match))
+        if (!HasComponent<T>(entity, match))
         {
             if (Mode != WorldMode.Immediate) throw new InvalidOperationException("Cannot create bew mutable reference to component in deferred mode. (the Entity did must already have the component)");
-            AddComponent<T>(identity, TypeExpression.Of<T>(match), new());
+            AddComponent<T>(entity, TypeExpression.Of<T>(match), new());
         }
 
-        var (table, row, _) = _meta[identity.Index];
+        var (table, row, _) = _meta[entity.Index];
         var storage = table.GetStorage<T>(match);
         return ref storage.Span[row];
     }
     */
     
-    internal ref T GetComponent<T>(Identity identity, Match match)
+    internal ref T GetComponent<T>(Entity entity, Match match)
     {
-        AssertAlive(identity);
-
-        if (!HasComponent<T>(identity, match))
+        if (!HasComponent<T>(entity, match))
         {
-            throw new InvalidOperationException($"Entity {identity} does not have a reference type component of type {typeof(T)} / {match}");
+            throw new InvalidOperationException($"Entity {entity} does not have a reference type component of type {typeof(T)} / {match}");
         }
 
-        var (table, row, _) = _meta[identity.Index];
+        var (table, row, _) = _meta[entity.Index];
         var storage = table.GetStorage<T>(match);
         return ref storage.Span[row];
     }
     
 /*
-    internal T GetComponent<T>(Identity identity, Match match) where T : class
+    internal T GetComponent<T>(entity entity, Match match) where T : class
     {
-        AssertAlive(identity);
+        AssertAlive(entity);
 
-        if (!HasComponent<T>(identity, match))
+        if (!HasComponent<T>(entity, match))
         {
-           throw new InvalidOperationException($"Entity {identity} does not have a reference type component of type {typeof(T)}");
+           throw new InvalidOperationException($"Entity {entity} does not have a reference type component of type {typeof(T)}");
         }
 
-        var (table, row, _) = _meta[identity.Index];
+        var (table, row, _) = _meta[entity.Index];
         var storage = table.GetStorage<T>(match);
         return storage.Span[row];
     }
 */
 
-    internal Signature GetSignature(Identity identity)
+    internal Signature GetSignature(Entity entity)
     {
-        AssertAlive(identity);
-        var meta = _meta[identity.Index];
+        var meta = _meta[entity.Index];
         var array = meta.Archetype.Signature;
         return array;
     }
     #endregion
 
-    internal T[] Get<T>(Identity id, Match match)
+    internal T[] Get<T>(Entity id, Match match)
     {
         var type = TypeExpression.Of<T>(match);
         var meta = _meta[id.Index];

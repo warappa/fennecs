@@ -17,7 +17,7 @@ public partial class World : IDisposable
     /// <remarks>
     /// There can be up to <see cref="MaxWorlds"/> distinct World instances in a single application domain.
     /// </remarks>
-    public readonly byte Id;
+    public readonly byte Index;
 
     /// <summary>
     /// All Worlds that can exist in this application domain.
@@ -101,7 +101,7 @@ public partial class World : IDisposable
     /// Reuses previously despawned Entities, whose Identities will differ in Generation after respawn. 
     /// </summary>
     /// <returns>an Entity to operate on</returns>
-    public Entity Spawn() => new(this, NewEntity()); //TODO: Check if semantically legal to spawn in Deferred mode.
+    public Entity Spawn() => NewEntity();
 
 
     /// <summary>
@@ -121,7 +121,7 @@ public partial class World : IDisposable
     /// <param name="values">component values</param>
     internal void Spawn(int count, IReadOnlyList<TypeExpression> components, IReadOnlyList<object> values)
     {
-        var signature = new Signature(components.ToImmutableSortedSet()).Add(Comp<Identity>.Plain.Expression);
+        var signature = new Signature(components.ToImmutableSortedSet()).Add(Comp<Entity>.Plain.Expression);
         var archetype = GetArchetype(signature);
         archetype.Spawn(count, components, values);
     }
@@ -132,13 +132,19 @@ public partial class World : IDisposable
     /// <param name="entity">the entity to despawn.</param>
     public void Despawn(Entity entity) => DespawnImpl(entity);
 
-    
+
     /// <summary>
     /// Checks if the entity is alive (was not despawned).
     /// </summary>
     /// <param name="identity">an Entity</param>
     /// <returns>true if the Entity is Alive, false if it was previously Despawned</returns>
-    internal bool IsAlive(Identity identity) => identity == _meta[identity.Index].Identity;
+    internal bool IsAlive(Entity identity)
+    {
+        return identity.Index >= 0
+        && identity.Index < _meta.Length
+        && identity == _meta[identity.Index].Entity;
+    }
+    
 
 
     /// <summary>
@@ -165,11 +171,11 @@ public partial class World : IDisposable
     /// </param>
     public void DespawnAllWith<T>(Match match = default)
     {
-        var query = Query<Identity>().Has<T>(match).Stream();
-        query.Raw(delegate(Memory<Identity> entities)
+        var query = Query<Entity>().Has<T>(match).Stream();
+        query.Raw(delegate(Memory<Entity> entities)
         {
             //TODO: This is not good. Need to untangle the types here.
-            foreach (var identity in entities.Span) DespawnImpl(new(this, identity));
+            foreach (var entity in entities.Span) DespawnImpl(entity);
         });
     }
 
@@ -197,14 +203,15 @@ public partial class World : IDisposable
     /// MUST BE REMOVED FROM ITS ARCHETYPE STORAGE! (used by Archetype.Truncate)
     /// </remarks>
     /// <param name="identities">the entities to despawn (remove)</param>
-    internal void Recycle(ReadOnlySpan<Identity> identities)
+    internal void Recycle(ReadOnlySpan<Entity> identities)
     {
         lock (_spawnLock)
         {
-            foreach (var identity in identities)
+            foreach (var entity in identities)
             {
-                DespawnDependencies(new(this, identity));
-                _meta[identity.Index] = default;
+                Debug.Assert(entity.Alive, "Recycling a dead Entity!");
+                DespawnDependencies(entity);
+                _meta[entity.Index] = default;
             }
             _identityPool.Recycle(identities);
         }
@@ -233,20 +240,20 @@ public partial class World : IDisposable
     /// <param name="initialCapacity">initial Entity capacity to reserve. The world will grow automatically.</param>
     public World(int initialCapacity = 4096)
     {
-        if (!Available.TryDequeue(out Id)) throw new InvalidOperationException("No more Worlds available.");
-        All[Id] = this;
+        if (!Available.TryDequeue(out Index)) throw new InvalidOperationException("No more Worlds available.");
+        All[Index] = this;
         
         Name = nameof(World);
         
         // World is also a Query of itself.
         World = this;
        
-        _identityPool = new(Id, initialCapacity);
+        _identityPool = new(Index, initialCapacity);
 
         _meta = new Meta[initialCapacity];
 
         //Create the "Entity" Archetype, which is also the root of the Archetype Graph.
-        _root = GetArchetype(new(Comp<Identity>.Plain.Expression));
+        _root = GetArchetype(new(Comp<Entity>.Plain.Expression));
     }
 
     
@@ -256,20 +263,20 @@ public partial class World : IDisposable
     /// <param name="initialCapacity">initial Entity capacity to reserve. The world will grow automatically.</param>
     public World(byte id, int initialCapacity = 4096)
     {
-        if (Available.Contains(id)) throw new InvalidOperationException($"World Id already in use by {All[Id]}");
+        if (Available.Contains(id)) throw new InvalidOperationException($"World Id already in use by {All[Index]}");
         
-        if (!Available.TryDequeue(out Id)) throw new InvalidOperationException("No more Worlds available.");
-        All[Id] = this;
+        if (!Available.TryDequeue(out Index)) throw new InvalidOperationException("No more Worlds available.");
+        All[Index] = this;
         
         // World is also a Query of itself.
         World = this;
        
-        _identityPool = new(Id, initialCapacity);
+        _identityPool = new(Index, initialCapacity);
 
         _meta = new Meta[initialCapacity];
 
         //Create the "Entity" Archetype, which is also the root of the Archetype Graph.
-        _root = GetArchetype(new(Comp<Identity>.Plain.Expression));
+        _root = GetArchetype(new(Comp<Entity>.Plain.Expression));
     }
 
 
@@ -321,8 +328,8 @@ public partial class World : IDisposable
     {
         //TODO: Dispose all Entities, Object Links, Queries, etc!
         
-        All[Id] = null!;
-        Available.Enqueue(Id);
+        All[Index] = null!;
+        Available.Enqueue(Index);
     }
 
 
@@ -341,7 +348,7 @@ public partial class World : IDisposable
     /// <inheritdoc />
     public override string ToString()
     {
-        return string.IsNullOrEmpty(Name) ? $"World {Id}" : $"World {Id} ({Name})";
+        return string.IsNullOrEmpty(Name) ? $"World {Index}" : $"World {Index} ({Name})";
     }
 
     /// <inheritdoc cref="ToString"/>
@@ -357,4 +364,5 @@ public partial class World : IDisposable
     }
 
     #endregion
+
 }

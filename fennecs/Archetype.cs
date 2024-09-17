@@ -46,7 +46,7 @@ public sealed class Archetype : IEnumerable<Entity>, IComparable<Archetype>
     /// </summary>
     internal event ArchetypeArrive? OnArrive;
     internal event ArchetypeArrive? OnDepart;
-    internal delegate void ArchetypeArrive(Span<Identity> entities);
+    internal delegate void ArchetypeArrive(Span<Entity> entities);
     internal delegate void ArchetypeDepart(Span<Entity> entities);
     
     
@@ -58,7 +58,7 @@ public sealed class Archetype : IEnumerable<Entity>, IComparable<Archetype>
     /// <summary>
     /// The Entities in this Archetype (filled contiguously from the bottom, as are the storages).
     /// </summary>
-    internal readonly Storage<Identity> IdentityStorage;
+    internal readonly Storage<Entity> IdentityStorage;
 
     private readonly Dictionary<TypeExpression, int> _storageIndices = new();
 
@@ -183,7 +183,7 @@ public sealed class Archetype : IEnumerable<Entity>, IComparable<Archetype>
         {
             var identity = IdentityStorage[entry + i];
             ref var meta = ref _world.GetEntityMeta(identity);
-            meta = new() { Identity = identity, Archetype = this, Row = entry + i };
+            meta = new() { Entity = identity, Archetype = this, Row = entry + i };
         }
         
         OnArrive?.Invoke(IdentityStorage.Span.Slice(entry, count));

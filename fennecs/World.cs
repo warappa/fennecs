@@ -67,24 +67,25 @@ public partial class World : Query
 
     #region CRUD
 
-    private Entity2 NewEntity()
+    private Entity NewEntity()
     {
         lock (_spawnLock)
         {
-            var identity = _identityPool.Spawn();
+            var entity = _identityPool.Spawn();
 
             // FIXME: Cleanup / Unify! (not pretty to directly interact with the internals here)
+            // Idea: EntityPool can provide the Meta space?
             Array.Resize(ref _meta, (int)BitOperations.RoundUpToPowerOf2((uint)(_identityPool.Created + 1)));
 
-            _meta[identity.Index] = new(_root, _root.Count, identity);
-            _root.IdentityStorage.Append(identity);
+            _meta[entity.Index] = new(_root, _root.Count, entity);
+            _root.IdentityStorage.Append(entity);
             _root.Invalidate();
 
-            return Entity2;
+            return entity;
         }
     }
 
-    internal PooledList<Entity2> SpawnBare(int count)
+    internal PooledList<Entity> SpawnBare(int count)
     {
         lock (_spawnLock)
         {
@@ -95,26 +96,26 @@ public partial class World : Query
     }
 
 
-    private bool HasComponent(Identity identity, TypeExpression typeExpression)
+    private bool HasComponent(Entity identity, TypeExpression typeExpression)
     {
         var meta = _meta[identity.Index];
-        return meta.Identity != default
-               && meta.Identity == identity
+        return meta.Entity != default
+               && meta.Entity == identity
                && typeExpression.Matches(meta.Archetype.MatchSignature);
     }
 
 
     private void DespawnImpl(Entity entity)
     {
-        AssertAlive(entity.Id);
+        //AssertAlive(entity);
 
         if (Mode == WorldMode.Deferred)
         {
-            _deferredOperations.Enqueue(new DeferredOperation { Opcode = Opcode.Despawn, Identity = entity });
+            _deferredOperations.Enqueue(new(){ Opcode = Opcode.Despawn, Identity = entity });
             return;
         }
 
-        ref var meta = ref _meta[entity.Id.Index];
+        ref var meta = ref _meta[entity.Index];
 
         var table = meta.Archetype;
         table.Delete(meta.Row);
@@ -124,7 +125,7 @@ public partial class World : Query
         _identityPool.Recycle(entity);
 
         // Patch Meta
-        _meta[entity.Id.Index] = default;
+        _meta[entity.Index] = default;
     }
 
 
@@ -137,7 +138,7 @@ public partial class World : Query
         var toMigrate = Archetypes.Where(a => a.Signature.Matches(types)).ToList();
 
         // Do not change the home archetype of the entity (relating to entities having a relation with themselves)
-        var homeArchetype = _meta[entity.Id.Index].Archetype;
+        var homeArchetype = _meta[entity.Index].Archetype;
 
         // And migrate them to a new Archetype without the relation
         foreach (var archetype in toMigrate)
@@ -182,8 +183,8 @@ public partial class World : Query
     }
 
 
-    internal ref Meta GetEntityMeta(Entity2 identity) => ref _meta[identity.Index];
-
+    internal ref Meta GetEntityMeta(Entity entity) => ref _meta[entity.Index];
+    
 
     private Archetype GetArchetype(Signature types)
     {
@@ -230,7 +231,7 @@ public partial class World : Query
         return table;
     }
 
-    internal IReadOnlyList<Component> GetComponents(Identity id)
+    internal IReadOnlyList<Component> GetComponents(Entity id)
     {
         var archetype = _meta[id.Index].Archetype;
         return archetype.GetRow(_meta[id.Index].Row);
@@ -245,11 +246,10 @@ public partial class World : Query
     #region Assert Helpers
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void AssertAlive(Identity entity)
+    private void AssertAlive(Entity entity)
     {
-        if (_meta[entity.Index].Identity.raw == entity.raw) return;
+        if (_meta[entity.Index].Entity == entity) return;
         throw new ObjectDisposedException($"Identity {entity} is not alive in {this}.");
     }
     #endregion
-
 }

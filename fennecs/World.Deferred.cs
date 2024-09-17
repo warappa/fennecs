@@ -62,7 +62,7 @@ public partial class World
                     break;
 
                 case Opcode.Despawn:
-                    DespawnImpl(new(this, op.Identity));
+                    DespawnImpl(op.Identity);
                     break;
 
                 case Opcode.Batch:
@@ -78,7 +78,7 @@ public partial class World
     {
         internal required Opcode Opcode;
         internal TypeExpression TypeExpression;
-        internal Identity Identity;
+        internal Entity Identity;
         internal object Data;
         internal Archetype Archetype;
 

@@ -392,7 +392,8 @@ public partial class Query : IEnumerable<Entity>, IDisposable, IBatchBegin
     /// <summary>
     /// Despawn all Entities matched by this Query.
     /// </summary>
-    public void Despawn()
+    /// <param name="entity"></param>
+    public void Despawn(Entity entity)
     {
         Truncate(0);
     }

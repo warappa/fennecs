@@ -3,7 +3,7 @@
 /// <summary>
 /// Target Expression to build a relation.
 /// </summary>
-internal readonly record struct Relate
+internal readonly record struct Relate2
 {
     private Identity Value { get; }
     
@@ -12,7 +12,7 @@ internal readonly record struct Relate
     /// <summary>
     /// Create a Relation expression to the Target entity.
     /// </summary>
-    public static Relate To(Entity entity) => new(entity.Id);
+    public static Relate To(Entity entity) => new(entity);
 
     /// <summary>
     /// Implicit conversion from Entity to Relation Target.

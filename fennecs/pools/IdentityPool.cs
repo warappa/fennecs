@@ -1,11 +1,11 @@
 ﻿namespace fennecs.pools;
 
-internal class IdentityPool //TODO: Rename Entity2Pool
+internal class IdentityPool //TODO: Rename to EntityPool
 {
     internal int Created => _created;
     internal int Count => _created - _recycled.Count;
 
-    private readonly Queue<Entity2> _recycled;
+    private readonly Queue<Entity> _recycled;
     private int _created;
     
     private readonly byte _worldIndex;
@@ -22,7 +22,7 @@ internal class IdentityPool //TODO: Rename Entity2Pool
     }
 
 
-    internal Entity2 Spawn()
+    internal Entity Spawn()
     {
         if (_recycled.TryDequeue(out var recycledEntity2)) return recycledEntity2;
 
@@ -31,9 +31,9 @@ internal class IdentityPool //TODO: Rename Entity2Pool
     }
 
 
-    internal PooledList<Entity2> Spawn(int requested)
+    internal PooledList<Entity> Spawn(int requested)
     {
-        var identities = PooledList<Entity2>.Rent();
+        var identities = PooledList<Entity>.Rent();
         var recycled = _recycled.Count;
 
         if (recycled <= requested)
@@ -62,12 +62,12 @@ internal class IdentityPool //TODO: Rename Entity2Pool
     }
 
 
-    internal void Recycle(Entity2 entity)
+    internal void Recycle(Entity entity)
     {
         _recycled.Enqueue(entity.Successor);
     }
 
-    internal void Recycle(ReadOnlySpan<Entity2> toDelete)
+    internal void Recycle(ReadOnlySpan<Entity> toDelete)
     {
         foreach (var entity in toDelete) Recycle(entity);
     }
