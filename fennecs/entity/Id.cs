@@ -1,15 +1,10 @@
 ﻿using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace fennecs;
 
-public class Tree : Dictionary<Entity, Entity>;
-
 internal static class LTypeHelper
 {
-    public static ulong Id<T>() => (ulong)LanguageType<T>.Id << 48;
-
     public static ulong Sub<T>() => (ulong)LanguageType<T>.Id << 32;
 
     public static Type Resolve(ulong type) => LanguageType.Resolve((TypeID)((type & TypeIdentity.TypeMask) >> 48));
@@ -28,12 +23,26 @@ internal readonly record struct TypeIdentity(ulong raw)
         Debug.Assert((raw & HeaderMask) != 0, "TypeIdentity must have a header.");
         return new(raw);   
     }
-    
-    public Kind kind => (Kind)(raw & (ulong) Kind.Mask);
-    public Type type => LanguageType.Resolve((TypeID)((raw & TypeMask) >> 48));
 
-    public Key Key => (Key)(raw & KeyMask);
+    private Kind kind => (Kind)(raw & (ulong) Kind.Mask);
+    private Type type => LanguageType.Resolve((TypeID)((raw & TypeMask) >> 48));
+
     
+    /// <summary>
+    /// Primary Key of this TypeIdentity.
+    /// </summary>
+    internal ulong Primary => raw & HeaderMask;
+
+    /// <summary>
+    /// Seconday Key of this TypeIdentity.
+    /// </summary>
+    internal ulong Secondary => raw & KeyMask;
+
+    /// <summary>
+    /// Seconday Key Type of this TypeIdentity.
+    /// </summary>
+    private Key KeyType => (Key)(raw & KeyTypeMask);
+
     
     /// <summary>
     /// Relation target of this TypeIdentity.
@@ -45,8 +54,8 @@ internal readonly record struct TypeIdentity(ulong raw)
     {
         get
         {
-            Debug.Assert(Key == Key.Entity, $"This TypeIdentity is not a Relation, it's pointing to a {Key}");
-            return new(raw & TargetMask);
+            Debug.Assert(KeyType == Key.Entity, $"This TypeIdentity is not a Relation, it's pointing to a {KeyType}");
+            return new(raw & KeyMask);
         }
     }
 
@@ -61,8 +70,8 @@ internal readonly record struct TypeIdentity(ulong raw)
     {
         get
         {
-            Debug.Assert(Key is Key.Hash or Key.Object or Key.Entity or Key.Target, $"This TypeIdentity has no SubType, it's pointing to {Key}");
-            return Key == Key.Entity ? typeof(Entity) : LTypeHelper.SubResolve(raw);
+            Debug.Assert(KeyType is Key.Hash or Key.Object or Key.Entity or Key.Target, $"This TypeIdentity has no SubType, it's pointing to {KeyType}");
+            return KeyType == Key.Entity ? typeof(Entity) : LTypeHelper.SubResolve(raw);
         }
     }
     
@@ -73,8 +82,8 @@ internal readonly record struct TypeIdentity(ulong raw)
     internal const ulong StorageMask      = 0xF000_0000_0000_0000ul;
     internal const ulong TypeMask         = 0x0FFF_0000_0000_0000ul;
     
-    internal const ulong TargetMask       = 0x0000_FFFF_FFFF_FFFFul;
-    internal const ulong KeyMask          = 0x0000_F000_0000_0000ul;
+    internal const ulong KeyMask          = 0x0000_FFFF_FFFF_FFFFul;
+    internal const ulong KeyTypeMask      = 0x0000_F000_0000_0000ul;
     
     internal const ulong EntityFlagMask   = 0x0000_0F00_0000_0000ul;
     internal const ulong WorldMask        = 0x0000_00FF_0000_0000ul;
@@ -87,7 +96,7 @@ internal readonly record struct TypeIdentity(ulong raw)
     internal const ulong GenerationMask = 0xFFFF_0000_0000_0000ul;
 
     
-    private Id id => new(raw & TargetMask);
+    private Id id => new(raw & KeyMask);
 
     /// <inheritdoc />
     public override string ToString()
@@ -157,7 +166,7 @@ public record struct ObjectLink
     public ObjectLink(ulong Raw)
     {
         Debug.Assert((Raw & TypeIdentity.HeaderMask) == 0, "ObjectLink must not have a header.");
-        Debug.Assert((Raw & TypeIdentity.KeyMask) == (ulong) Key.Object, "ObjectLink must have a Category.Object");
+        Debug.Assert((Raw & TypeIdentity.KeyTypeMask) == (ulong) Key.Object, "ObjectLink must have a Category.Object");
         raw = Raw;
     }
     
@@ -213,7 +222,7 @@ public record struct Entity : IComparable<Entity>
         get
         {
             Debug.Assert(Alive, $"Entity {this} is not alive.");
-            return raw & TypeIdentity.TargetMask;
+            return raw & TypeIdentity.KeyMask;
         }
     }
 
@@ -222,7 +231,7 @@ public record struct Entity : IComparable<Entity>
     public Entity(ulong raw)
     {
         this.raw = raw;
-        Debug.Assert((raw & TypeIdentity.KeyMask) == (ulong) Key.Entity, "Identity is not of Category.Entity.");
+        Debug.Assert((raw & TypeIdentity.KeyTypeMask) == (ulong) Key.Entity, "Identity is not of Category.Entity.");
         Debug.Assert(World.TryGet(_world, out var world), $"World {_world} does not exist.");
         Debug.Assert(Alive, "Entity is not alive.");
     }
@@ -438,11 +447,8 @@ public record struct Entity : IComparable<Entity>
     
 
     /// <inheritdoc />
-    public override int GetHashCode() => HashCode.Combine(_world, Id);
+    public override int GetHashCode() => raw.GetHashCode();
 
-
-    /// <inheritdoc/>
-    public int CompareTo(EntityOld other) => Id.CompareTo(other.Id);
 
 
     /// <summary>
@@ -450,10 +456,12 @@ public record struct Entity : IComparable<Entity>
     /// </summary>
     public bool Alive => World != null! && World.IsAlive(this);
 
-    /// <inheritdoc/>
+    /// <summary>
+    /// Dumps the Entity to a nice readable string, including its component structure.
+    /// </summary>
     public string DebugString()
     {
-        var sb = new System.Text.StringBuilder(Id.ToString());
+        var sb = new System.Text.StringBuilder(ToString());
         sb.Append(' ');
         if (Alive)
         {
@@ -467,7 +475,6 @@ public record struct Entity : IComparable<Entity>
         return sb.ToString();
     }
     #endregion
-    
 }
 
 
@@ -483,7 +490,7 @@ public readonly record struct Hash
     internal Hash(ulong value)
     {
         Debug.Assert((value & TypeIdentity.HeaderMask) == 0, "KeyExpression must not have a header.");
-        Debug.Assert((value & TypeIdentity.KeyMask) == (ulong) Key.Hash, "KeyExpression is not of Category.Key.");
+        Debug.Assert((value & TypeIdentity.KeyTypeMask) == (ulong) Key.Hash, "KeyExpression is not of Category.Key.");
         raw = value;
     }
 
@@ -506,7 +513,7 @@ internal readonly record struct Relate
     internal Relate(ulong value)
     {
         Debug.Assert((value & TypeIdentity.HeaderMask) == 0, "RelationExpression must not have a header.");
-        Debug.Assert((value & TypeIdentity.KeyMask) == (ulong) Key.Entity, "RelationExpression is not of Category.Entity.");
+        Debug.Assert((value & TypeIdentity.KeyTypeMask) == (ulong) Key.Entity, "RelationExpression is not of Category.Entity.");
         Debug.Assert(new Entity(value).Alive, "Relation target is not alive.");
         raw = value;
     }
@@ -523,11 +530,11 @@ internal readonly record struct Id : IComparable<Id>
     /// <summary>
     /// Creates a new Id from a ulong value.
     /// </summary>
-    /// <param name="Value">value, must not have any of the 16 most significant bits set <see cref="TypeIdentity.TargetMask"/>.</param>
+    /// <param name="Value">value, must not have any of the 16 most significant bits set <see cref="TypeIdentity.KeyMask"/>.</param>
     public Id(ulong Value)
     {
         Debug.Assert((Value & TypeIdentity.HeaderMask) == 0, "fennecs.Id must not have a header.");
-        _value = Value & TypeIdentity.TargetMask;
+        _value = Value & TypeIdentity.KeyMask;
     }
 
     private Key Key => (Key) (_value & (ulong) Key.Mask);

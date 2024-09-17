@@ -47,6 +47,7 @@ Here, there be ~~dragons~~ more foxes. *What did you expect?*
 
 ## Upcoming Changes
 ### soon(tm)
+- Stream runners return their own Stream, allowing chaining operations.
 - Chunked Component Storage (global, or maybe each World may have its own chunk size)
 - `Match.Object` becomes internal / deprecated, use `Link.Any` instead.
 

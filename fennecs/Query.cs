@@ -130,7 +130,7 @@ public partial class Query : IEnumerable<Entity>, IDisposable, IBatchBegin
         World ??= (World) this;
         
         // Global Query (if we don't have a mask)
-        Mask ??= MaskPool.Rent().Has(TypeExpression.Of<Identity>(Match.Plain));
+        Mask ??= MaskPool.Rent().Has(TypeExpression.Of<Entity>(Match.Plain));
     }
 
     #endregion
@@ -392,12 +392,8 @@ public partial class Query : IEnumerable<Entity>, IDisposable, IBatchBegin
     /// <summary>
     /// Despawn all Entities matched by this Query.
     /// </summary>
-    /// <param name="entity"></param>
-    public void Despawn(Entity entity)
-    {
-        Truncate(0);
-    }
-
+    public void Despawn() => Truncate(0);
+    
 
     /// <summary>
     /// Despawn all Entities above the specified count in the Query, using the specified mode of distribution.
